@@ -1,1 +1,0 @@
-# Authorship_verification_rus
