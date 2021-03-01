@@ -10,7 +10,7 @@ import numpy as np
 
 m = Model("russian-syntagrus-ud-2.5-191206.udpipe")
 stop = stopwords.get_stopwords('ru')
-# postfix can be _sm for demo corpus and _med for other texts
+# postfix can be _sm for demo corpus, _med for other texts, _full for all corpus
 postfix = '_sm'
 
 text_folder_name = 'texts' + postfix + '/'
