@@ -8,7 +8,7 @@ def parce():
     file = open('links_1.txt', 'w')
     pages = 1208
     url = 'https://ficbook.net/fanfiction/books/naruto?premium=0&filterDirection=&rating=&size='
-    url += str(2) + '&p='
+    url += str(0) + '&p=' # in str() 0 to dowload _sm texts, 1 to download _med texts
     for p in range(1, pages + 1):
         if not p % 10:
             print(p)
