@@ -41,9 +41,6 @@ class Doc2Data:
         self.average_parts_in_sentence = 0  # how many clauses in sentence on average
         self.average_letter_per_sentence = 0  # average symbols per sentence
         self.percentage_of_unique_words = 0  # number of unique tokens / number of all tokens
-        self.dis_legomena = 0
-        self.legomena = 0
-        self.hapax_legomena = 0
         self.lemmas = []  # list of all lemmas in text, includes repetition
         self.bag_of_gramms4 = []  # list of all 4-grams of symbols in text, includes repetition
         self.bag_of_gramms3 = []  # list of all 3-grams of symbols in text, includes repetition
@@ -93,18 +90,12 @@ class Doc2Data:
                     verbs += word.lemma
                 try:
                     self.deprel_dist[word.deprel] += 1
-                    # if word.deprel in self.typical_np_relations:
-                    #     simple_np.append(word.upostag)
-                    # elif word.deprel in self.typical_vp_relations:
-                    #     simple_vp.append(word.upostag)
                 except KeyError:
                     self.deprel_dist['UNK'] += 1
 
                 if word.upostag != 'PUNCT':
                     total_word_len += len(word.form)
                     total_words += 1
-            # self.simple_sym_chunk.append('_'.join(simple_np))
-            # self.simple_sym_chunk.append('_'.join(simple_vp))
             # this fills chunks from one sentence
             used_tokens = []
             np_sent = {}
@@ -136,10 +127,10 @@ class Doc2Data:
                     bad_cycle += 1  # if nothing added in np or vp then the cycle considered as bad
             # making 3-grams of syntax chunks
             np_sent = list(OrderedDict(sorted(np_sent.items(), key=lambda t: t[0])).values())
-            self.syntax_trees.append(np_sent)
+            self.syntax_trees.append('_'.join(np_sent))
             np_sent.extend(['_', '_'])
             vp_sent = list(OrderedDict(sorted(vp_sent.items(), key=lambda t: t[0])).values())
-            self.syntax_trees.append(vp_sent)
+            self.syntax_trees.append('_'.join(np_sent))
             vp_sent.extend(['_', '_'])
             for i in range(len(np_sent) - 2):
                 self.sym_chunk.append(''.join(np_sent[i:i + 3]))
@@ -172,9 +163,6 @@ class Doc2Data:
         self.vector.append(self.average_letter_per_sentence)
         self.vector.append(self.average_parts_in_sentence / self.average_letter_per_sentence)
         self.vector.append(self.percentage_of_unique_words)
-        self.vector.append(self.legomena)
-        self.vector.append(self.dis_legomena)
-        self.vector.append(self.hapax_legomena)
         self.vector.append(self.word_parts_dist['NOUN'] / self.word_parts_dist['VERB'])
         self.vector.extend(list(self.word_parts_dist.values()))
         self.vector.extend(list(self.deprel_dist.values()))
@@ -184,16 +172,6 @@ class Doc2Data:
     def calculate_hapax_legomena(self, lemmas):
         hapax = [key for key, val in lemmas.items() if val == 1]
         dis = [key for key, val in lemmas.items() if val == 2]
-
-        if len(dis) == 0:
-            self.legomena = 0
-            self.dis_legomena = 0
-            self.hapax_legomena = 0
-
-        else:
-            self.legomena = len(hapax) / len(dis)
-            self.dis_legomena = len(dis) / len(lemmas)
-            self.hapax_legomena = len(hapax) / len(dis) / len(lemmas)
 
     def get_top_words(self):
         counts = Counter(self.lemmas)
@@ -223,7 +201,7 @@ class Doc2Data:
                      'symbols_2': self.bag_of_gramms3,
                      'tokens': self.lemmas,
                      'chunk': self.sym_chunk,
-                     'tress': self.syntax_trees,
+                     'trees': self.syntax_trees,
                      'top_words': self.top_words,
                      'top_verbs': self.top_verbs}
         self.save_text_data()  # save self.data to json
@@ -245,7 +223,6 @@ class CalculatePair:
         symbol_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols']), ' '.join(data_2['symbols'])])
         symbol2_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols_2']), ' '.join(data_2['symbols_2'])])
         chunk_tf_idf = vectorizer.fit_transform([' '.join(data_1['chunk']), ' '.join(data_2['chunk'])])
-        tree_tf_idf = vectorizer.fit_transform([' '.join(data_1['tress']), ' '.join(data_2['tress'])])
         top_words_tf_idf = vectorizer.fit_transform([' '.join(data_1['top_words']), ' '.join(data_2['top_words'])])
 
         self.pair_vector.append(calculate_cos(token_tf_idf[0], token_tf_idf[1]))  # tf-idf
@@ -258,10 +235,9 @@ class CalculatePair:
         self.pair_vector.append(calculate_cos(chunk_tf_idf[0], chunk_tf_idf[1]))  # tf-idf of syntax chunks
         self.pair_vector.append(
             calculate_cos(top_words_tf_idf[0], top_words_tf_idf[1]))  # tf-idf top_words (just in case)
-        self.pair_vector.append(calculate_cos(tree_tf_idf[0], tree_tf_idf[1]))
 
         # count mean_dif for every set
-        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'tress', 'top_words', 'top_verbs']:
+        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'top_words', 'top_verbs']:
             all_tokens = set(data_1[el] + data_2[el])
             part_token_1 = len(set(data_1[el])) / len(all_tokens)
             part_token_2 = len(set(data_2[el])) / len(all_tokens)
@@ -283,7 +259,7 @@ class CalculatePair:
             while el_1 > 1 or el_2 > 1:  # attempt to normalize every argument
                 el_1 /= 10
                 el_2 /= 10
-            el_dif = 1 - (el_1 - el_2)
+            el_dif = el_1 - el_2
             if el_dif < 0:
                 el_dif *= -1
             if el_1 > el_2:
@@ -297,7 +273,14 @@ class CalculatePair:
                 else:
                     el_prop = el_1 / el_2
             diff.append(el_prop)
+            diff.append(el_prop ** 2)
+            diff.append(el_prop ** 3)
+            diff.append(el_prop * self.pair_vector[0])
+            diff.append(el_prop * self.pair_vector[4])
+            diff.append(el_prop * self.pair_vector[8])
             diff.append(el_dif)
+            diff.append(el_1)
+            diff.append(el_2)
 
         self.pair_vector.extend(diff)
 
