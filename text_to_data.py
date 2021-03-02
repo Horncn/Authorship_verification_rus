@@ -33,17 +33,24 @@ class Doc2Data:
                             'amod': 0, 'det': 0, 'case': 0, 'conj': 0, 'cc': 0,
                             'fixed': 0, 'flat': 0, 'compound': 0, 'aux': 0, 'cop': 0, 'mark': 0,
                             'punct': 0, 'root': 0, 'UNK': 0}
+        self.punctuation_dist = {':': 0, ';': 0, '.': 0, '?': 0, '!': 0, '"': 0}
+        self.typical_np_relations = ['nsubj', 'obj', 'iobj', 'csubj', 'nmod', 'amod', 'appos', 'det']
+        self.typical_vp_relations = ['root', 'ccomp', 'xcomp', 'obl', 'advcl', 'advmod', 'alc']
         self.average_sent_length = 0
         self.average_word_length = 0
         self.average_parts_in_sentence = 0  # how many clauses in sentence on average
         self.average_letter_per_sentence = 0  # average symbols per sentence
         self.percentage_of_unique_words = 0  # number of unique tokens / number of all tokens
+        self.dis_legomena = 0
+        self.legomena = 0
+        self.hapax_legomena = 0
         self.lemmas = []  # list of all lemmas in text, includes repetition
         self.bag_of_gramms4 = []  # list of all 4-grams of symbols in text, includes repetition
         self.bag_of_gramms3 = []  # list of all 3-grams of symbols in text, includes repetition
         self.vector = []  # all previous number values combined in one list (used for saving purposes)
         self.data = {}  # dict that will be transfered to json format and saved
         self.sym_chunk = []  # list of syntax chunks
+        self.simple_sym_chunk = []
         self.top_words = []  # list of top 100 words in text, ordered
         self.top_verbs = []  # list of top 50 verbs, ordered
         self.process()  # call other class methods to parse text and save json
@@ -64,6 +71,8 @@ class Doc2Data:
         total_words = 0  # not every token is a word that's why this exists
         words = []
         verbs = []
+        simple_np = []
+        simple_vp = []
         self.average_parts_in_sentence = (len(sents) + self.text.count(',') + self.text.count(':')) / len(sents)
         for sent in sents:
             total_tokens += 1
@@ -73,7 +82,7 @@ class Doc2Data:
                     if word.lemma not in words:
                         words.append(word.lemma)
                 if word.lemma not in self.stop_words or word.form not in self.stop_words:
-                    lemma_text += word.lemma + ' '  # lemmatising text
+                    lemma_text += word.lemma + ' '  # lemmatizing text
 
                 try:
                     self.word_parts_dist[word.upostag] += 1
@@ -84,13 +93,18 @@ class Doc2Data:
                     verbs += word.lemma
                 try:
                     self.deprel_dist[word.deprel] += 1
+                    if word.deprel in self.typical_np_relations:
+                        simple_np.append(word.upostag)
+                    elif word.deprel in self.typical_vp_relations:
+                        simple_vp.append(word.upostag)
                 except KeyError:
                     self.deprel_dist['UNK'] += 1
 
                 if word.upostag != 'PUNCT':
                     total_word_len += len(word.form)
                     total_words += 1
-
+            self.simple_sym_chunk.append('_'.join(simple_np))
+            self.simple_sym_chunk.append('_'.join(simple_vp))
             # this fills chunks from one sentence
             used_tokens = []
             np_sent = {}
@@ -152,13 +166,40 @@ class Doc2Data:
         self.vector.append(self.average_letter_per_sentence)
         self.vector.append(self.average_parts_in_sentence / self.average_letter_per_sentence)
         self.vector.append(self.percentage_of_unique_words)
+        self.vector.append(self.legomena)
+        self.vector.append(self.dis_legomena)
+        self.vector.append(self.hapax_legomena)
         self.vector.append(self.word_parts_dist['NOUN'] / self.word_parts_dist['VERB'])
         self.vector.extend(list(self.word_parts_dist.values()))
         self.vector.extend(list(self.deprel_dist.values()))
+        self.vector.extend(list(self.punctuation_dist.values()))
+
+    # https://github.com/ashenoy95/writeprints-static/blob/master/whiteprints-static.py
+    def calculate_hapax_legomena(self, lemmas):
+        hapax = [key for key, val in lemmas.items() if val == 1]
+        dis = [key for key, val in lemmas.items() if val == 2]
+
+        if len(dis) == 0:
+            self.legomena = 0
+            self.dis_legomena = 0
+            self.hapax_legomena = 0
+
+        else:
+            self.legomena = len(hapax) / len(dis)
+            self.dis_legomena = len(dis) / len(lemmas)
+            self.hapax_legomena = len(hapax) / len(dis) / len(lemmas)
 
     def get_top_words(self):
         counts = Counter(self.lemmas)
+        self.calculate_hapax_legomena(counts)
         self.top_words = sorted(counts, key=lambda x: int(counts[x]), reverse=True)[1:101]
+
+    def puctuation_distribution(self):
+        for key in self.punctuation_dist.keys():
+            self.punctuation_dist[key] = self.text.count(key)
+        all_punctiation = sum(self.punctuation_dist.values())
+        for key in self.punctuation_dist.keys():
+            self.punctuation_dist[key] /= all_punctiation
 
     def save_text_data(self):  # save data to json
         path = self.folder + self.filename + '.json'
@@ -166,8 +207,8 @@ class Doc2Data:
             json.dump(self.data, fl)
 
     def process(self):
-        self.make_symbols(4)  # makes bag_of_gramms4
-        self.make_symbols(3)  # makes bag_of_gramms3
+        self.make_symbols(4)  # makes bag_of 4-gramms
+        self.make_symbols(3)  # makes bag_of 3-gramms
         self.lemmatize_and_fill_params()  # process text
         self.make_vector()  # fill vector
         self.get_top_words()  # get top verbs
@@ -176,6 +217,7 @@ class Doc2Data:
                      'symbols_2': self.bag_of_gramms3,
                      'tokens': self.lemmas,
                      'chunk': self.sym_chunk,
+                     'simple_chunk': self.simple_sym_chunk,
                      'top_words': self.top_words,
                      'top_verbs': self.top_verbs}
         self.save_text_data()  # save self.data to json
@@ -187,12 +229,18 @@ class CalculatePair:
         data_1 = json.load(open(folder + text_1 + '.json', 'r'))
         data_2 = json.load(open(folder + text_2 + '.json', 'r'))
         self.pair_vector = []
-        vectorizer = TfidfVectorizer()
+        vectorizer = TfidfVectorizer(min_df=0.1)
+
+        texts_length_proportion = len(data_1['tokens']) / len(data_2['tokens'])
+        if texts_length_proportion > 1:
+            texts_length_proportion = 1 / texts_length_proportion
 
         token_tf_idf = vectorizer.fit_transform([' '.join(data_1['tokens']), ' '.join(data_2['tokens'])])
         symbol_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols']), ' '.join(data_2['symbols'])])
         symbol2_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols_2']), ' '.join(data_2['symbols_2'])])
         chunk_tf_idf = vectorizer.fit_transform([' '.join(data_1['chunk']), ' '.join(data_2['chunk'])])
+        simple_chunk_tf_idf = vectorizer.fit_transform(
+            [' '.join(data_1['simple_chunk']), ' '.join(data_2['simple_chunk'])])
         top_words_tf_idf = vectorizer.fit_transform([' '.join(data_1['top_words']), ' '.join(data_2['top_words'])])
 
         self.pair_vector.append(calculate_cos(token_tf_idf[0], token_tf_idf[1]))  # tf-idf
@@ -205,8 +253,10 @@ class CalculatePair:
         self.pair_vector.append(calculate_cos(chunk_tf_idf[0], chunk_tf_idf[1]))  # tf-idf of syntax chunks
         self.pair_vector.append(
             calculate_cos(top_words_tf_idf[0], top_words_tf_idf[1]))  # tf-idf top_words (just in case)
+        self.pair_vector.append(calculate_cos(simple_chunk_tf_idf[0], simple_chunk_tf_idf[1]))
 
-        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'top_words', 'top_verbs']:  # count mean_dif for every set
+        # count mean_dif for every set
+        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'simple_chunk', 'top_words', 'top_verbs']:
             all_tokens = set(data_1[el] + data_2[el])
             part_token_1 = len(set(data_1[el])) / len(all_tokens)
             part_token_2 = len(set(data_2[el])) / len(all_tokens)
@@ -218,6 +268,8 @@ class CalculatePair:
             if data_1['top_words'][i] in data_2['top_words']:
                 same_top_words += 1
         self.pair_vector.append(same_top_words / 100)
+        self.pair_vector.append(texts_length_proportion)
+        important_counter = len(self.pair_vector)
 
         diff = []
         for i in range(len(data_1['vec'])):
@@ -242,20 +294,19 @@ class CalculatePair:
             diff.append(el_prop)
             diff.append(el_prop ** 2)
             diff.append(el_prop ** 3)
-            diff.append(el_prop / self.pair_vector[0])  # token tf-idf
-            diff.append(el_prop / self.pair_vector[4])  # token * grams tf-idfs
-            diff.append(el_prop / self.pair_vector[8])  # token miss
-            diff.append(el_prop / self.pair_vector[12])  # top words miss
+            diff.append(el_prop * self.pair_vector[0])  # token tf-idf
+            diff.append(el_prop * self.pair_vector[4])  # token * grams tf-idfs
+            diff.append(el_prop * self.pair_vector[9])  # token miss
+            diff.append(el_prop * self.pair_vector[14])  # top words miss
             diff.append(el_dif)
 
         self.pair_vector.extend(diff)
 
-        linear = self.pair_vector[:15]
         # first 15 elements are seems to be quite important, so there are 2d, 3d and 4th exponents of them added in pair
-        for el in linear:
+        for el in self.pair_vector[:important_counter]:
             self.pair_vector.append(el ** 2)
-            self.pair_vector.append(el ** 3)
-            self.pair_vector.append(el ** 4)
+        #     self.pair_vector.append(el ** 3)
+        #     self.pair_vector.append(el ** 4)
 
     def get_pair_data(self):
         return self.pair_vector
