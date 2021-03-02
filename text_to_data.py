@@ -34,8 +34,8 @@ class Doc2Data:
                             'fixed': 0, 'flat': 0, 'compound': 0, 'aux': 0, 'cop': 0, 'mark': 0,
                             'punct': 0, 'root': 0, 'UNK': 0}
         self.punctuation_dist = {':': 0, ';': 0, '.': 0, '?': 0, '!': 0, '"': 0}
-        self.typical_np_relations = ['nsubj', 'obj', 'iobj', 'csubj', 'nmod', 'amod', 'appos', 'det']
-        self.typical_vp_relations = ['root', 'ccomp', 'xcomp', 'obl', 'advcl', 'advmod', 'alc']
+        # self.typical_np_relations = ['nsubj', 'obj', 'iobj', 'csubj', 'nmod', 'amod', 'appos', 'det']
+        # self.typical_vp_relations = ['root', 'ccomp', 'xcomp', 'obl', 'advcl', 'advmod', 'alc']
         self.average_sent_length = 0
         self.average_word_length = 0
         self.average_parts_in_sentence = 0  # how many clauses in sentence on average
@@ -50,7 +50,7 @@ class Doc2Data:
         self.vector = []  # all previous number values combined in one list (used for saving purposes)
         self.data = {}  # dict that will be transfered to json format and saved
         self.sym_chunk = []  # list of syntax chunks
-        self.simple_sym_chunk = []
+        self.syntax_trees = []
         self.top_words = []  # list of top 100 words in text, ordered
         self.top_verbs = []  # list of top 50 verbs, ordered
         self.process()  # call other class methods to parse text and save json
@@ -71,8 +71,8 @@ class Doc2Data:
         total_words = 0  # not every token is a word that's why this exists
         words = []
         verbs = []
-        simple_np = []
-        simple_vp = []
+        # simple_np = []
+        # simple_vp = []
         self.average_parts_in_sentence = (len(sents) + self.text.count(',') + self.text.count(':')) / len(sents)
         for sent in sents:
             total_tokens += 1
@@ -93,18 +93,18 @@ class Doc2Data:
                     verbs += word.lemma
                 try:
                     self.deprel_dist[word.deprel] += 1
-                    if word.deprel in self.typical_np_relations:
-                        simple_np.append(word.upostag)
-                    elif word.deprel in self.typical_vp_relations:
-                        simple_vp.append(word.upostag)
+                    # if word.deprel in self.typical_np_relations:
+                    #     simple_np.append(word.upostag)
+                    # elif word.deprel in self.typical_vp_relations:
+                    #     simple_vp.append(word.upostag)
                 except KeyError:
                     self.deprel_dist['UNK'] += 1
 
                 if word.upostag != 'PUNCT':
                     total_word_len += len(word.form)
                     total_words += 1
-            self.simple_sym_chunk.append('_'.join(simple_np))
-            self.simple_sym_chunk.append('_'.join(simple_vp))
+            # self.simple_sym_chunk.append('_'.join(simple_np))
+            # self.simple_sym_chunk.append('_'.join(simple_vp))
             # this fills chunks from one sentence
             used_tokens = []
             np_sent = {}
@@ -134,11 +134,17 @@ class Doc2Data:
                         break
                 else:
                     bad_cycle += 1  # if nothing added in np or vp then the cycle considered as bad
-
-            np_sent = '_'.join(list(OrderedDict(sorted(np_sent.items(), key=lambda t: t[0])).values()))
-            vp_sent = '_'.join(list(OrderedDict(sorted(vp_sent.items(), key=lambda t: t[0])).values()))
-            self.sym_chunk.append(np_sent)
-            self.sym_chunk.append(vp_sent)
+            # making 3-grams of syntax chunks
+            np_sent = list(OrderedDict(sorted(np_sent.items(), key=lambda t: t[0])).values())
+            self.syntax_trees.append(np_sent)
+            np_sent.extend(['_', '_'])
+            vp_sent = list(OrderedDict(sorted(vp_sent.items(), key=lambda t: t[0])).values())
+            self.syntax_trees.append(vp_sent)
+            vp_sent.extend(['_', '_'])
+            for i in range(len(np_sent) - 2):
+                self.sym_chunk.append(''.join(np_sent[i:i + 3]))
+            for i in range(len(vp_sent) - 2):
+                self.sym_chunk.append(''.join(vp_sent[i:i + 3]))
             # end of filling syntax chunks
 
         wp_dist_sum = sum(self.word_parts_dist.values())
@@ -217,7 +223,7 @@ class Doc2Data:
                      'symbols_2': self.bag_of_gramms3,
                      'tokens': self.lemmas,
                      'chunk': self.sym_chunk,
-                     'simple_chunk': self.simple_sym_chunk,
+                     'tress': self.syntax_trees,
                      'top_words': self.top_words,
                      'top_verbs': self.top_verbs}
         self.save_text_data()  # save self.data to json
@@ -239,8 +245,7 @@ class CalculatePair:
         symbol_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols']), ' '.join(data_2['symbols'])])
         symbol2_tf_idf = vectorizer.fit_transform([' '.join(data_1['symbols_2']), ' '.join(data_2['symbols_2'])])
         chunk_tf_idf = vectorizer.fit_transform([' '.join(data_1['chunk']), ' '.join(data_2['chunk'])])
-        simple_chunk_tf_idf = vectorizer.fit_transform(
-            [' '.join(data_1['simple_chunk']), ' '.join(data_2['simple_chunk'])])
+        tree_tf_idf = vectorizer.fit_transform([' '.join(data_1['tress']), ' '.join(data_2['tress'])])
         top_words_tf_idf = vectorizer.fit_transform([' '.join(data_1['top_words']), ' '.join(data_2['top_words'])])
 
         self.pair_vector.append(calculate_cos(token_tf_idf[0], token_tf_idf[1]))  # tf-idf
@@ -253,10 +258,10 @@ class CalculatePair:
         self.pair_vector.append(calculate_cos(chunk_tf_idf[0], chunk_tf_idf[1]))  # tf-idf of syntax chunks
         self.pair_vector.append(
             calculate_cos(top_words_tf_idf[0], top_words_tf_idf[1]))  # tf-idf top_words (just in case)
-        self.pair_vector.append(calculate_cos(simple_chunk_tf_idf[0], simple_chunk_tf_idf[1]))
+        self.pair_vector.append(calculate_cos(tree_tf_idf[0], tree_tf_idf[1]))
 
         # count mean_dif for every set
-        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'simple_chunk', 'top_words', 'top_verbs']:
+        for el in ['tokens', 'symbols', 'symbols_2', 'chunk', 'tress', 'top_words', 'top_verbs']:
             all_tokens = set(data_1[el] + data_2[el])
             part_token_1 = len(set(data_1[el])) / len(all_tokens)
             part_token_2 = len(set(data_2[el])) / len(all_tokens)
@@ -292,12 +297,6 @@ class CalculatePair:
                 else:
                     el_prop = el_1 / el_2
             diff.append(el_prop)
-            diff.append(el_prop ** 2)
-            diff.append(el_prop ** 3)
-            diff.append(el_prop * self.pair_vector[0])  # token tf-idf
-            diff.append(el_prop * self.pair_vector[4])  # token * grams tf-idfs
-            diff.append(el_prop * self.pair_vector[9])  # token miss
-            diff.append(el_prop * self.pair_vector[14])  # top words miss
             diff.append(el_dif)
 
         self.pair_vector.extend(diff)
@@ -305,8 +304,6 @@ class CalculatePair:
         # first 15 elements are seems to be quite important, so there are 2d, 3d and 4th exponents of them added in pair
         for el in self.pair_vector[:important_counter]:
             self.pair_vector.append(el ** 2)
-        #     self.pair_vector.append(el ** 3)
-        #     self.pair_vector.append(el ** 4)
 
     def get_pair_data(self):
         return self.pair_vector
