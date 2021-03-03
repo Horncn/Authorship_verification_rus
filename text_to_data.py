@@ -275,12 +275,11 @@ class CalculatePair:
             diff.append(el_prop)
             diff.append(el_prop ** 2)
             diff.append(el_prop ** 3)
-            diff.append(el_prop * self.pair_vector[0])
-            diff.append(el_prop * self.pair_vector[4])
+            diff.append(el_prop * self.pair_vector[0]) # token tf-idf
+            diff.append(el_prop * self.pair_vector[4]) # token * grams mean tf-idf
             diff.append(el_prop * self.pair_vector[8])
             diff.append(el_dif)
-            diff.append(el_1)
-            diff.append(el_2)
+
 
         self.pair_vector.extend(diff)
 
