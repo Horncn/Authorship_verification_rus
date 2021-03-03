@@ -253,9 +253,9 @@ class CalculatePair:
         important_counter = len(self.pair_vector)
 
         diff = []
-        for i in range(len(data_1['vec'])):
-            el_1 = data_1['vec'][i]
-            el_2 = data_2['vec'][i]
+        for i in range(len(data_1['vec']) - 7):
+            el_1 = data_1['vec'][i + 7]
+            el_2 = data_2['vec'][i + 7]
             while el_1 > 1 or el_2 > 1:  # attempt to normalize every argument
                 el_1 /= 10
                 el_2 /= 10
