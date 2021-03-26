@@ -34,8 +34,7 @@ class Doc2Data:
                             'fixed': 0, 'flat': 0, 'compound': 0, 'aux': 0, 'cop': 0, 'mark': 0,
                             'punct': 0, 'root': 0, 'UNK': 0}
         self.punctuation_dist = {':': 0, ';': 0, '.': 0, '?': 0, '!': 0, '"': 0}
-        # self.typical_np_relations = ['nsubj', 'obj', 'iobj', 'csubj', 'nmod', 'amod', 'appos', 'det']
-        # self.typical_vp_relations = ['root', 'ccomp', 'xcomp', 'obl', 'advcl', 'advmod', 'alc']
+        self.cases_dist = {'Nom': 0, 'Gen': 0, 'Dat': 0, 'Acc': 0, 'Ins': 0, 'Loc': 0}
         self.average_sent_length = 0
         self.average_word_length = 0
         self.average_parts_in_sentence = 0  # how many clauses in sentence on average
@@ -47,9 +46,9 @@ class Doc2Data:
         self.vector = []  # all previous number values combined in one list (used for saving purposes)
         self.data = {}  # dict that will be transfered to json format and saved
         self.sym_chunk = []  # list of syntax chunks
-        self.syntax_trees = []
         self.top_words = []  # list of top 100 words in text, ordered
         self.top_verbs = []  # list of top 50 verbs, ordered
+        self.phrases = []
         self.process()  # call other class methods to parse text and save json
 
     def make_symbols(self, size=4):  # fill bag_of_gramms4 and bag_of_gramms3
@@ -68,8 +67,6 @@ class Doc2Data:
         total_words = 0  # not every token is a word that's why this exists
         words = []
         verbs = []
-        # simple_np = []
-        # simple_vp = []
         self.average_parts_in_sentence = (len(sents) + self.text.count(',') + self.text.count(':')) / len(sents)
         for sent in sents:
             total_tokens += 1
@@ -88,6 +85,11 @@ class Doc2Data:
 
                 if word.upostag == 'VERB':
                     verbs += word.lemma
+                if word.upostag == 'NOUN':
+                    for case in self.cases_dist.keys():
+                        if case in word.feats:
+                            self.cases_dist[case] += 1
+                            break
                 try:
                     self.deprel_dist[word.deprel] += 1
                 except KeyError:
@@ -127,10 +129,8 @@ class Doc2Data:
                     bad_cycle += 1  # if nothing added in np or vp then the cycle considered as bad
             # making 3-grams of syntax chunks
             np_sent = list(OrderedDict(sorted(np_sent.items(), key=lambda t: t[0])).values())
-            self.syntax_trees.append('_'.join(np_sent))
             np_sent.extend(['_', '_'])
             vp_sent = list(OrderedDict(sorted(vp_sent.items(), key=lambda t: t[0])).values())
-            self.syntax_trees.append('_'.join(np_sent))
             vp_sent.extend(['_', '_'])
             for i in range(len(np_sent) - 2):
                 self.sym_chunk.append(''.join(np_sent[i:i + 3]))
@@ -140,6 +140,7 @@ class Doc2Data:
 
         wp_dist_sum = sum(self.word_parts_dist.values())
         deprel_sum = sum(self.deprel_dist.values())
+        cases_sum = sum(self.cases_dist.values())
         self.average_sent_length = total_words / self.word_parts_dist['<root>']
 
         # normalize numbers in dicts
@@ -147,6 +148,8 @@ class Doc2Data:
             self.word_parts_dist[key] /= wp_dist_sum
         for key in self.deprel_dist.keys():
             self.deprel_dist[key] /= deprel_sum
+        for key in self.cases_dist.keys():
+            self.cases_dist[key] /= cases_sum
         self.lemmas = lemma_text[:-1].split()
         while ' ' in self.lemmas:
             self.lemmas.remove(' ')
@@ -164,19 +167,26 @@ class Doc2Data:
         self.vector.append(self.average_parts_in_sentence / self.average_letter_per_sentence)
         self.vector.append(self.percentage_of_unique_words)
         self.vector.append(self.word_parts_dist['NOUN'] / self.word_parts_dist['VERB'])
+        self.vector.extend(self.phrases)
         self.vector.extend(list(self.word_parts_dist.values()))
         self.vector.extend(list(self.deprel_dist.values()))
         self.vector.extend(list(self.punctuation_dist.values()))
-
-    # https://github.com/ashenoy95/writeprints-static/blob/master/whiteprints-static.py
-    def calculate_hapax_legomena(self, lemmas):
-        hapax = [key for key, val in lemmas.items() if val == 1]
-        dis = [key for key, val in lemmas.items() if val == 2]
+        self.vector.extend(list(self.cases_dist.values()))
 
     def get_top_words(self):
         counts = Counter(self.lemmas)
-        self.calculate_hapax_legomena(counts)
         self.top_words = sorted(counts, key=lambda x: int(counts[x]), reverse=True)[1:101]
+
+    def make_phrases(self):
+        agr = self.deprel_dist['nmod'] + self.deprel_dist['appos'] + \
+              self.deprel_dist['acl'] + self.deprel_dist['det'] \
+              + self.deprel_dist['amod'] + self.deprel_dist['nummod'] + self.deprel_dist['compound']
+        man = self.deprel_dist['nsubj'] + self.deprel_dist['csubj'] + \
+              self.deprel_dist['obj'] + self.deprel_dist['ccomp'] + self.deprel_dist['iobj']
+        adj = self.deprel_dist['obl']
+        self.phrases.append(agr / self.word_parts_dist['NOUN'])
+        self.phrases.append(man / self.word_parts_dist['NOUN'])
+        self.phrases.append(adj / self.word_parts_dist['NOUN'])
 
     def puctuation_distribution(self):
         for key in self.punctuation_dist.keys():
@@ -195,13 +205,13 @@ class Doc2Data:
         self.make_symbols(3)  # makes bag_of 3-gramms
         self.lemmatize_and_fill_params()  # process text
         self.make_vector()  # fill vector
+        self.make_phrases()
         self.get_top_words()  # get top verbs
         self.data = {'vec': self.vector,
                      'symbols': self.bag_of_gramms4,
                      'symbols_2': self.bag_of_gramms3,
                      'tokens': self.lemmas,
                      'chunk': self.sym_chunk,
-                     'trees': self.syntax_trees,
                      'top_words': self.top_words,
                      'top_verbs': self.top_verbs}
         self.save_text_data()  # save self.data to json
@@ -250,15 +260,11 @@ class CalculatePair:
                 same_top_words += 1
         self.pair_vector.append(same_top_words / 100)
         self.pair_vector.append(texts_length_proportion)
-        important_counter = len(self.pair_vector)
 
         diff = []
-        for i in range(len(data_1['vec']) - 7):
-            el_1 = data_1['vec'][i + 7]
-            el_2 = data_2['vec'][i + 7]
-            while el_1 > 1 or el_2 > 1:  # attempt to normalize every argument
-                el_1 /= 10
-                el_2 /= 10
+        for i in range(len(data_1['vec'])):
+            el_1 = data_1['vec'][i]
+            el_2 = data_2['vec'][i]
             el_dif = el_1 - el_2
             if el_dif < 0:
                 el_dif *= -1
@@ -273,19 +279,11 @@ class CalculatePair:
                 else:
                     el_prop = el_1 / el_2
             diff.append(el_prop)
-            diff.append(el_prop ** 2)
-            diff.append(el_prop ** 3)
-            diff.append(el_prop * self.pair_vector[0]) # token tf-idf
-            diff.append(el_prop * self.pair_vector[4]) # token * grams mean tf-idf
-            diff.append(el_prop * self.pair_vector[8])
             diff.append(el_dif)
-
-
         self.pair_vector.extend(diff)
 
-        # first 15 elements are seems to be quite important, so there are 2d, 3d and 4th exponents of them added in pair
-        for el in self.pair_vector[:important_counter]:
-            self.pair_vector.append(el ** 2)
+        for i in range(len(self.pair_vector)):
+            self.pair_vector.append(self.pair_vector[i] ** 2)
 
     def get_pair_data(self):
         return self.pair_vector
